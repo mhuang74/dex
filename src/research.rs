@@ -1,6 +1,6 @@
 use crate::core::{dex_path, ensure_dex_dir, git_trimmed_output, render_prompt};
 use crate::runner::{track_child, untrack_child, Runner};
-use crate::ui::{banner, err_msg, info, phase_detail, prompt_choice, prompt_line, warn};
+use crate::ui::{banner, err_msg, format_duration, info, phase_detail, prompt_choice, prompt_line, warn};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -77,20 +77,6 @@ struct BenchmarkOutcome {
 }
 
 // ── Small helpers ──
-
-fn format_duration(d: Duration) -> String {
-    let total_secs = d.as_secs();
-    let h = total_secs / 3600;
-    let m = (total_secs % 3600) / 60;
-    let s = total_secs % 60;
-    if h > 0 {
-        format!("{}h {}m {}s", h, m, s)
-    } else if m > 0 {
-        format!("{}m {}s", m, s)
-    } else {
-        format!("{}s", s)
-    }
-}
 
 fn is_better(current: f64, reference: f64, direction: &str) -> bool {
     if direction == "higher" {
@@ -1080,20 +1066,5 @@ mod tests {
         let conf = compute_confidence(&results, 100.0, "lower");
         assert!(conf.is_some());
         assert!(conf.unwrap() > 0.0);
-    }
-
-    #[test]
-    fn format_duration_seconds_only() {
-        assert_eq!(format_duration(Duration::from_secs(5)), "5s");
-    }
-
-    #[test]
-    fn format_duration_minutes_and_seconds() {
-        assert_eq!(format_duration(Duration::from_secs(125)), "2m 5s");
-    }
-
-    #[test]
-    fn format_duration_hours_minutes_and_seconds() {
-        assert_eq!(format_duration(Duration::from_secs(3725)), "1h 2m 5s");
     }
 }

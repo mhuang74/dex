@@ -2,7 +2,7 @@ use serde::Deserialize;
 use similar::TextDiff;
 use std::fs;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::core::{
     append_impl_commits, dex_path, ensure_dex_dir, git_commits_between, git_head,
@@ -12,24 +12,10 @@ use crate::core::{
 use crate::plan::{first_open_checkbox, next_open_task, plan_step_counts};
 use crate::runner::Runner;
 use crate::ui::{
-    banner, err_msg, info, phase_detail, prompt_choice, prompt_multiline, show_markdown, warn,
+    banner, err_msg, format_duration, info, phase_detail, prompt_choice, prompt_multiline, show_markdown, warn,
 };
 
 const IMPLEMENTATION_STALEMATE_LIMIT: usize = 4;
-
-fn format_duration(d: Duration) -> String {
-    let total_secs = d.as_secs();
-    let h = total_secs / 3600;
-    let m = (total_secs % 3600) / 60;
-    let s = total_secs % 60;
-    if h > 0 {
-        format!("{}h {}m {}s", h, m, s)
-    } else if m > 0 {
-        format!("{}m {}s", m, s)
-    } else {
-        format!("{}s", s)
-    }
-}
 
 // ── Phase 1: Planning ──
 
@@ -876,12 +862,11 @@ pub fn finalize_phase(r: &Runner, plan_path: &str, finalize_target: &str) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_review_plan, mark_review_step_done, mark_remaining_skipped, plans_have_same_structure, read_review_plan_base_ref, extract_round_from_heading, Reviewers, format_duration};
+    use super::{generate_review_plan, mark_review_step_done, mark_remaining_skipped, plans_have_same_structure, read_review_plan_base_ref, extract_round_from_heading, Reviewers};
     use crate::core::{dex_path, ensure_dex_dir};
     use regex::Regex;
     use std::fs;
     use std::path::PathBuf;
-    use std::time::Duration;
 
     enum BareRequestState {
         Ready(String),
@@ -1160,26 +1145,5 @@ mod tests {
     #[test]
     fn extract_round_from_heading_defaults_to_one() {
         assert_eq!(extract_round_from_heading("Focused Review"), 1);
-    }
-
-    #[test]
-    fn format_duration_seconds_only() {
-        assert_eq!(format_duration(Duration::from_secs(0)), "0s");
-        assert_eq!(format_duration(Duration::from_secs(5)), "5s");
-        assert_eq!(format_duration(Duration::from_secs(59)), "59s");
-    }
-
-    #[test]
-    fn format_duration_minutes_and_seconds() {
-        assert_eq!(format_duration(Duration::from_secs(60)), "1m 0s");
-        assert_eq!(format_duration(Duration::from_secs(90)), "1m 30s");
-        assert_eq!(format_duration(Duration::from_secs(3599)), "59m 59s");
-    }
-
-    #[test]
-    fn format_duration_hours_minutes_and_seconds() {
-        assert_eq!(format_duration(Duration::from_secs(3600)), "1h 0m 0s");
-        assert_eq!(format_duration(Duration::from_secs(3661)), "1h 1m 1s");
-        assert_eq!(format_duration(Duration::from_secs(7384)), "2h 3m 4s");
     }
 }

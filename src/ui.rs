@@ -1,6 +1,7 @@
 use std::io::{self, BufRead, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use termimad::{terminal_size, MadSkin};
 
@@ -154,6 +155,20 @@ pub fn app_header() {
     );
     let _ = stream.reset();
     let _ = writeln!(stream);
+}
+
+pub fn format_duration(d: Duration) -> String {
+    let total_secs = d.as_secs();
+    let h = total_secs / 3600;
+    let m = (total_secs % 3600) / 60;
+    let s = total_secs % 60;
+    if h > 0 {
+        format!("{}h {}m {}s", h, m, s)
+    } else if m > 0 {
+        format!("{}m {}s", m, s)
+    } else {
+        format!("{}s", s)
+    }
 }
 
 /// Print a phase banner: a horizontal rule with the phase name highlighted.
@@ -480,4 +495,30 @@ pub fn prompt_line(msg: &str, hint: &str) -> String {
         return String::new();
     }
     input.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_duration_seconds_only() {
+        assert_eq!(format_duration(Duration::from_secs(0)), "0s");
+        assert_eq!(format_duration(Duration::from_secs(5)), "5s");
+        assert_eq!(format_duration(Duration::from_secs(59)), "59s");
+    }
+
+    #[test]
+    fn format_duration_minutes_and_seconds() {
+        assert_eq!(format_duration(Duration::from_secs(60)), "1m 0s");
+        assert_eq!(format_duration(Duration::from_secs(90)), "1m 30s");
+        assert_eq!(format_duration(Duration::from_secs(3599)), "59m 59s");
+    }
+
+    #[test]
+    fn format_duration_hours_minutes_and_seconds() {
+        assert_eq!(format_duration(Duration::from_secs(3600)), "1h 0m 0s");
+        assert_eq!(format_duration(Duration::from_secs(3661)), "1h 1m 1s");
+        assert_eq!(format_duration(Duration::from_secs(7384)), "2h 3m 4s");
+    }
 }
