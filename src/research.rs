@@ -78,6 +78,20 @@ struct BenchmarkOutcome {
 
 // ── Small helpers ──
 
+fn format_duration(d: Duration) -> String {
+    let total_secs = d.as_secs();
+    let h = total_secs / 3600;
+    let m = (total_secs % 3600) / 60;
+    let s = total_secs % 60;
+    if h > 0 {
+        format!("{}h {}m {}s", h, m, s)
+    } else if m > 0 {
+        format!("{}m {}s", m, s)
+    } else {
+        format!("{}s", s)
+    }
+}
+
 fn is_better(current: f64, reference: f64, direction: &str) -> bool {
     if direction == "higher" {
         current > reference
@@ -674,6 +688,7 @@ pub fn research_new(
     save_research_config(&config)?;
 
     info("Running baseline benchmark...");
+    let baseline_start = Instant::now();
     let outcome = run_benchmark(&config.command, Duration::from_secs(BENCHMARK_TIMEOUT_SECS))?;
     if outcome.timed_out {
         return Err("baseline benchmark timed out".to_string());
@@ -684,6 +699,7 @@ pub fn research_new(
             outcome.exit_code
         ));
     }
+    phase_detail("elapsed", &format_duration(baseline_start.elapsed()));
 
     let primary = extract_primary_metric(&outcome, &config.metric_name).ok_or(format!(
         "baseline produced no METRIC line for {:?}",
@@ -752,6 +768,7 @@ fn research_loop(
     banner("RESEARCH");
 
     loop {
+        let iter_start = Instant::now();
         let iteration = results.len() - starting_run + 1;
         if let Some(max) = max_iterations {
             if iteration > max {
@@ -785,6 +802,7 @@ fn research_loop(
                 consecutive_failures, MAX_CONSECUTIVE_AGENT_FAILURES, e
             ));
             let _ = git_revert_to(&head_before);
+            phase_detail("elapsed", &format_duration(iter_start.elapsed()));
             if consecutive_failures >= MAX_CONSECUTIVE_AGENT_FAILURES {
                 return Err(format!(
                     "research aborted: agent failed {} times in a row",
@@ -800,6 +818,7 @@ fn research_loop(
         let head_after = git_trimmed_output(&["rev-parse", "HEAD"]).unwrap_or_default();
         if head_after == head_before {
             warn("Agent made no changes. Skipping benchmark.");
+            phase_detail("elapsed", &format_duration(iter_start.elapsed()));
             continue;
         }
 
@@ -825,6 +844,7 @@ fn research_loop(
                     format!("{} ({})", description, reason),
                     None,
                 )?;
+                phase_detail("elapsed", &format_duration(iter_start.elapsed()));
                 continue;
             }
             Err(e) => {
@@ -838,6 +858,7 @@ fn research_loop(
                     format!("{} (spawn error)", description),
                     None,
                 )?;
+                phase_detail("elapsed", &format_duration(iter_start.elapsed()));
                 continue;
             }
         };
@@ -858,6 +879,7 @@ fn research_loop(
                     format!("{} (metric not found)", description),
                     None,
                 )?;
+                phase_detail("elapsed", &format_duration(iter_start.elapsed()));
                 continue;
             }
         };
@@ -879,6 +901,7 @@ fn research_loop(
                         format!("{} (checks failed)", description),
                         confidence,
                     )?;
+                    phase_detail("elapsed", &format_duration(iter_start.elapsed()));
                     continue;
                 }
                 Err(e) => {
@@ -892,6 +915,7 @@ fn research_loop(
                         format!("{} (checks error)", description),
                         None,
                     )?;
+                    phase_detail("elapsed", &format_duration(iter_start.elapsed()));
                     continue;
                 }
             }
@@ -929,6 +953,8 @@ fn research_loop(
                 &format!("{confidence:.1}× ({})", confidence_label(confidence)),
             );
         }
+
+        phase_detail("elapsed", &format_duration(iter_start.elapsed()));
     }
 
     banner("RESEARCH DONE");
@@ -1054,5 +1080,20 @@ mod tests {
         let conf = compute_confidence(&results, 100.0, "lower");
         assert!(conf.is_some());
         assert!(conf.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn format_duration_seconds_only() {
+        assert_eq!(format_duration(Duration::from_secs(5)), "5s");
+    }
+
+    #[test]
+    fn format_duration_minutes_and_seconds() {
+        assert_eq!(format_duration(Duration::from_secs(125)), "2m 5s");
+    }
+
+    #[test]
+    fn format_duration_hours_minutes_and_seconds() {
+        assert_eq!(format_duration(Duration::from_secs(3725)), "1h 2m 5s");
     }
 }
