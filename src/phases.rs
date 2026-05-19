@@ -551,12 +551,15 @@ pub fn review_phase(
 
         let header = task.header.trim().trim_start_matches('#').trim();
 
+        let step_start = Instant::now();
+
         if header.starts_with("Broad Review") {
             let rv = reviewers.broad.iter().find(|rv| rv.name == checkbox_name);
             if let Some(rv) = rv {
                 run_review_fanout(r, plan_path, &effective_base_ref, std::slice::from_ref(rv), "broad", 1, 1, parallel);
             }
             mark_review_step_done("## Broad Review", &checkbox_name);
+            phase_detail("elapsed", &format_duration(step_start.elapsed()));
         } else if header.starts_with("Broad Fixer") {
             let issues = collect_issues_from_reviewers(&reviewers.broad);
             match issues {
@@ -568,6 +571,7 @@ pub fn review_phase(
                     mark_review_step_done("## Broad Fixer", "fix broad review findings");
                 }
             }
+            phase_detail("elapsed", &format_duration(step_start.elapsed()));
         } else if header.starts_with("Focused Review") {
             let rv = reviewers.focused.iter().find(|rv| rv.name == checkbox_name);
             let round = extract_round_from_heading(header);
@@ -583,6 +587,7 @@ pub fn review_phase(
                     parallel,
                 );
                 mark_review_step_done(&task.header, &checkbox_name);
+                phase_detail("elapsed", &format_duration(step_start.elapsed()));
                 if issues.is_none() {
                     let all_in_round_done = {
                         let updated_task = first_open_checkbox(&review_plan_path).ok().flatten();
@@ -610,6 +615,7 @@ pub fn review_phase(
                     mark_review_step_done(&task.header, &format!("fix focused round {} findings", round));
                 }
             }
+            phase_detail("elapsed", &format_duration(step_start.elapsed()));
         }
     }
 }
@@ -682,6 +688,7 @@ fn run_review_fanout(
 
     let max_concurrent = parallel.unwrap_or(reviewers.len()).max(1);
     for batch in prepared.chunks(max_concurrent) {
+        let batch_start = Instant::now();
         let handles: Vec<_> = batch
             .iter()
             .map(|review| {
@@ -719,6 +726,7 @@ fn run_review_fanout(
                 ));
             }
         }
+        phase_detail("elapsed", &format_duration(batch_start.elapsed()));
     }
 
     let mut all_clean = true;
@@ -765,10 +773,13 @@ fn run_fixer(r: &Runner, plan_path: &str, base_ref: &str, issues: &[String]) -> 
             "Issues": issues.join("\n\n"),
         }),
     );
+    let fixer_start = Instant::now();
     if let Err(e) = r.run(&fix_prompt) {
+        phase_detail("elapsed", &format_duration(fixer_start.elapsed()));
         err_msg(&format!("Fixer error: {}", e));
         return Err(format!("fixer failed after automatic retries: {}", e));
     }
+    phase_detail("elapsed", &format_duration(fixer_start.elapsed()));
     Ok(())
 }
 
