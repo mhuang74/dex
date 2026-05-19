@@ -124,6 +124,7 @@ fn run_planning_loop(
 ) -> Result<Option<String>, String> {
     let mut iteration = 1;
     loop {
+        let iter_start = Instant::now();
         phase_detail("iteration", &iteration.to_string());
         iteration += 1;
 
@@ -138,9 +139,12 @@ fn run_planning_loop(
         );
 
         if let Err(e) = r.run(&p) {
+            phase_detail("elapsed", &format_duration(iter_start.elapsed()));
             err_msg(&format!("CLI error: {}", e));
             return Err(format!("planning failed after automatic retries: {}", e));
         }
+
+        phase_detail("elapsed", &format_duration(iter_start.elapsed()));
 
         if let Some(questions) = read_dex_file("questions.md") {
             show_markdown("Questions from CLI", &questions);
