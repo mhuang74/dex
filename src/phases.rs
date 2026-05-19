@@ -777,6 +777,7 @@ fn run_fixer(r: &Runner, plan_path: &str, base_ref: &str, issues: &[String]) -> 
 pub fn bare_phase(r: &Runner, request_file: &str, max_iterations: usize) -> Result<(), String> {
     banner("BARE");
     for iteration in 1..=max_iterations {
+        let iter_start = Instant::now();
         phase_detail("iteration", &format!("{}/{}", iteration, max_iterations));
         let request = match fs::read_to_string(request_file) {
             Ok(request) => {
@@ -802,8 +803,10 @@ pub fn bare_phase(r: &Runner, request_file: &str, max_iterations: usize) -> Resu
 
         let p = render_prompt("bare.txt", &serde_json::json!({"Request": request}));
         if let Err(e) = r.run(&p) {
+            phase_detail("elapsed", &format_duration(iter_start.elapsed()));
             return Err(format!("bare iteration {} failed: {}", iteration, e));
         }
+        phase_detail("elapsed", &format_duration(iter_start.elapsed()));
     }
     Ok(())
 }
