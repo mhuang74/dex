@@ -278,6 +278,9 @@ dex stores all working state in a `.dex/` directory at your project root. It's g
 | `feedbacks.json` | Accumulated revision feedback | dex |
 | `review-base-ref.txt` | Durable review diff base captured before implementation | dex |
 | `review-*.md` | Review findings per reviewer | agent |
+| `timing.jsonl` | Per-iteration elapsed times for every phase (JSON Lines) | dex |
+
+dex emits an `elapsed` trace line after each phase iteration (plan, impl, bare, review, finalize, research) so you can see how long every step took. The same data is appended to `.dex/timing.jsonl` with `phase`, `iteration`, `elapsed_secs`, and `timestamp` fields for post-run analysis.
 
 You can safely delete the entire `.dex/` directory to start fresh. dex recreates it on the next run.
 
