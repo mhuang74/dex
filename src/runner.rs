@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use termcolor::{ColorSpec, StandardStream, WriteColor};
 
 use crate::core::{CliConfig, OutputFormat};
-use crate::ui::{err_msg, locked_stderr, phase_detail, show_markdown, warn, wrap_text};
+use crate::ui::{err_msg, format_duration, locked_stderr, phase_detail, show_markdown, warn, wrap_text};
 
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
@@ -240,6 +240,7 @@ impl Runner {
 
         let status = child.wait().map_err(|e| format!("wait: {}", e))?;
         untrack_child(&child);
+        phase_detail("elapsed", &format_duration(start.elapsed()));
         if status.success() {
             Ok(())
         } else {
