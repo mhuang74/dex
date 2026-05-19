@@ -864,10 +864,13 @@ pub fn finalize_phase(r: &Runner, plan_path: &str, finalize_target: &str) -> Res
         }),
     );
 
+    let start = Instant::now();
     if let Err(e) = r.run(&p) {
+        phase_detail("elapsed", &format_duration(start.elapsed()));
         err_msg(&format!("Finalize error: {}", e));
         return Err(format!("finalize failed after automatic retries: {}", e));
     }
+    phase_detail("elapsed", &format_duration(start.elapsed()));
     Ok(())
 }
 
