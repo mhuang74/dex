@@ -1,4 +1,4 @@
-use crate::core::{dex_path, ensure_dex_dir, git_trimmed_output, render_prompt};
+use crate::core::{append_timing, dex_path, ensure_dex_dir, git_trimmed_output, render_prompt};
 use crate::runner::{track_child, untrack_child, Runner};
 use crate::ui::{banner, err_msg, format_duration, info, phase_detail, prompt_choice, prompt_line, warn};
 
@@ -685,7 +685,9 @@ pub fn research_new(
             outcome.exit_code
         ));
     }
-    phase_detail("elapsed", &format_duration(baseline_start.elapsed()));
+    let baseline_elapsed = baseline_start.elapsed();
+    phase_detail("elapsed", &format_duration(baseline_elapsed));
+    append_timing("research-baseline", 0, baseline_elapsed.as_secs_f64());
 
     let primary = extract_primary_metric(&outcome, &config.metric_name).ok_or(format!(
         "baseline produced no METRIC line for {:?}",
@@ -788,7 +790,9 @@ fn research_loop(
                 consecutive_failures, MAX_CONSECUTIVE_AGENT_FAILURES, e
             ));
             let _ = git_revert_to(&head_before);
-            phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+            let elapsed = iter_start.elapsed();
+            phase_detail("elapsed", &format_duration(elapsed));
+            append_timing("research", iteration, elapsed.as_secs_f64());
             if consecutive_failures >= MAX_CONSECUTIVE_AGENT_FAILURES {
                 return Err(format!(
                     "research aborted: agent failed {} times in a row",
@@ -804,7 +808,9 @@ fn research_loop(
         let head_after = git_trimmed_output(&["rev-parse", "HEAD"]).unwrap_or_default();
         if head_after == head_before {
             warn("Agent made no changes. Skipping benchmark.");
-            phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+            let elapsed = iter_start.elapsed();
+            phase_detail("elapsed", &format_duration(elapsed));
+            append_timing("research", iteration, elapsed.as_secs_f64());
             continue;
         }
 
@@ -830,7 +836,9 @@ fn research_loop(
                     format!("{} ({})", description, reason),
                     None,
                 )?;
-                phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+                let elapsed = iter_start.elapsed();
+                phase_detail("elapsed", &format_duration(elapsed));
+                append_timing("research", iteration, elapsed.as_secs_f64());
                 continue;
             }
             Err(e) => {
@@ -844,7 +852,9 @@ fn research_loop(
                     format!("{} (spawn error)", description),
                     None,
                 )?;
-                phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+                let elapsed = iter_start.elapsed();
+                phase_detail("elapsed", &format_duration(elapsed));
+                append_timing("research", iteration, elapsed.as_secs_f64());
                 continue;
             }
         };
@@ -865,7 +875,9 @@ fn research_loop(
                     format!("{} (metric not found)", description),
                     None,
                 )?;
-                phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+                let elapsed = iter_start.elapsed();
+                phase_detail("elapsed", &format_duration(elapsed));
+                append_timing("research", iteration, elapsed.as_secs_f64());
                 continue;
             }
         };
@@ -887,7 +899,9 @@ fn research_loop(
                         format!("{} (checks failed)", description),
                         confidence,
                     )?;
-                    phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+                    let elapsed = iter_start.elapsed();
+                    phase_detail("elapsed", &format_duration(elapsed));
+                    append_timing("research", iteration, elapsed.as_secs_f64());
                     continue;
                 }
                 Err(e) => {
@@ -901,7 +915,9 @@ fn research_loop(
                         format!("{} (checks error)", description),
                         None,
                     )?;
-                    phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+                    let elapsed = iter_start.elapsed();
+                    phase_detail("elapsed", &format_duration(elapsed));
+                    append_timing("research", iteration, elapsed.as_secs_f64());
                     continue;
                 }
             }
@@ -940,7 +956,9 @@ fn research_loop(
             );
         }
 
-        phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+        let elapsed = iter_start.elapsed();
+        phase_detail("elapsed", &format_duration(elapsed));
+        append_timing("research", iteration, elapsed.as_secs_f64());
     }
 
     banner("RESEARCH DONE");

@@ -5,7 +5,7 @@ use std::process::Command;
 use std::time::Instant;
 
 use crate::core::{
-    append_impl_commits, dex_path, ensure_dex_dir, git_commits_between, git_head,
+    append_impl_commits, append_timing, dex_path, ensure_dex_dir, git_commits_between, git_head,
     git_trimmed_output, impl_commit_history_summary, read_dex_file, remove_dex_file, render_prompt,
     save_feedbacks, save_plan_request,
 };
@@ -125,12 +125,16 @@ fn run_planning_loop(
         );
 
         if let Err(e) = r.run(&p) {
-            phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+            let elapsed = iter_start.elapsed();
+            phase_detail("elapsed", &format_duration(elapsed));
+            append_timing("plan", iteration - 1, elapsed.as_secs_f64());
             err_msg(&format!("CLI error: {}", e));
             return Err(format!("planning failed after automatic retries: {}", e));
         }
 
-        phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+        let elapsed = iter_start.elapsed();
+        phase_detail("elapsed", &format_duration(elapsed));
+        append_timing("plan", iteration - 1, elapsed.as_secs_f64());
 
         if let Some(questions) = read_dex_file("questions.md") {
             show_markdown("Questions from CLI", &questions);
@@ -264,6 +268,7 @@ pub fn impl_phase(r: &Runner, plan_path: &str) -> Result<(), String> {
         if let Err(e) = r.run(&p) {
             let iter_elapsed = iter_start.elapsed();
             phase_detail("elapsed", &format_duration(iter_elapsed));
+            append_timing("impl", iteration, iter_elapsed.as_secs_f64());
             err_msg(&format!("CLI error: {}", e));
             return Err(format!(
                 "implementation failed after automatic retries: {}",
@@ -273,6 +278,7 @@ pub fn impl_phase(r: &Runner, plan_path: &str) -> Result<(), String> {
 
         let iter_elapsed = iter_start.elapsed();
         phase_detail("elapsed", &format_duration(iter_elapsed));
+        append_timing("impl", iteration, iter_elapsed.as_secs_f64());
 
         let mut made_commits = false;
         if let Some(ref before) = state_a {
@@ -529,6 +535,7 @@ pub fn review_phase(
     let effective_base_ref = read_review_plan_base_ref()
         .unwrap_or_else(|| base_ref.to_string());
 
+    let mut review_step = 0;
     loop {
         let Some((task, checkbox_name)) = first_open_checkbox(&review_plan_path)? else {
             info("All review steps complete!");
@@ -538,6 +545,7 @@ pub fn review_phase(
         let header = task.header.trim().trim_start_matches('#').trim();
 
         let step_start = Instant::now();
+        review_step += 1;
 
         if header.starts_with("Broad Review") {
             let rv = reviewers.broad.iter().find(|rv| rv.name == checkbox_name);
@@ -545,7 +553,9 @@ pub fn review_phase(
                 run_review_fanout(r, plan_path, &effective_base_ref, std::slice::from_ref(rv), "broad", 1, 1, parallel);
             }
             mark_review_step_done("## Broad Review", &checkbox_name);
-            phase_detail("elapsed", &format_duration(step_start.elapsed()));
+            let elapsed = step_start.elapsed();
+            phase_detail("elapsed", &format_duration(elapsed));
+            append_timing("review-broad", review_step, elapsed.as_secs_f64());
         } else if header.starts_with("Broad Fixer") {
             let issues = collect_issues_from_reviewers(&reviewers.broad);
             match issues {
@@ -557,7 +567,9 @@ pub fn review_phase(
                     mark_review_step_done("## Broad Fixer", "fix broad review findings");
                 }
             }
-            phase_detail("elapsed", &format_duration(step_start.elapsed()));
+            let elapsed = step_start.elapsed();
+            phase_detail("elapsed", &format_duration(elapsed));
+            append_timing("review-broad-fixer", review_step, elapsed.as_secs_f64());
         } else if header.starts_with("Focused Review") {
             let rv = reviewers.focused.iter().find(|rv| rv.name == checkbox_name);
             let round = extract_round_from_heading(header);
@@ -573,7 +585,9 @@ pub fn review_phase(
                     parallel,
                 );
                 mark_review_step_done(&task.header, &checkbox_name);
-                phase_detail("elapsed", &format_duration(step_start.elapsed()));
+                let elapsed = step_start.elapsed();
+                phase_detail("elapsed", &format_duration(elapsed));
+                append_timing("review-focused", review_step, elapsed.as_secs_f64());
                 if issues.is_none() {
                     let all_in_round_done = {
                         let updated_task = first_open_checkbox(&review_plan_path).ok().flatten();
@@ -601,7 +615,9 @@ pub fn review_phase(
                     mark_review_step_done(&task.header, &format!("fix focused round {} findings", round));
                 }
             }
-            phase_detail("elapsed", &format_duration(step_start.elapsed()));
+            let elapsed = step_start.elapsed();
+            phase_detail("elapsed", &format_duration(elapsed));
+            append_timing("review-focused-fixer", review_step, elapsed.as_secs_f64());
         }
     }
 }
@@ -800,10 +816,14 @@ pub fn bare_phase(r: &Runner, request_file: &str, max_iterations: usize) -> Resu
 
         let p = render_prompt("bare.txt", &serde_json::json!({"Request": request}));
         if let Err(e) = r.run(&p) {
-            phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+            let elapsed = iter_start.elapsed();
+            phase_detail("elapsed", &format_duration(elapsed));
+            append_timing("bare", iteration, elapsed.as_secs_f64());
             return Err(format!("bare iteration {} failed: {}", iteration, e));
         }
-        phase_detail("elapsed", &format_duration(iter_start.elapsed()));
+        let elapsed = iter_start.elapsed();
+        phase_detail("elapsed", &format_duration(elapsed));
+        append_timing("bare", iteration, elapsed.as_secs_f64());
     }
     Ok(())
 }
@@ -852,11 +872,15 @@ pub fn finalize_phase(r: &Runner, plan_path: &str, finalize_target: &str) -> Res
 
     let start = Instant::now();
     if let Err(e) = r.run(&p) {
-        phase_detail("elapsed", &format_duration(start.elapsed()));
+        let elapsed = start.elapsed();
+        phase_detail("elapsed", &format_duration(elapsed));
+        append_timing("finalize", 1, elapsed.as_secs_f64());
         err_msg(&format!("Finalize error: {}", e));
         return Err(format!("finalize failed after automatic retries: {}", e));
     }
-    phase_detail("elapsed", &format_duration(start.elapsed()));
+    let elapsed = start.elapsed();
+    phase_detail("elapsed", &format_duration(elapsed));
+    append_timing("finalize", 1, elapsed.as_secs_f64());
     Ok(())
 }
 

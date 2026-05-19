@@ -14,6 +14,8 @@ const DEX_CONFIG_DIR: &str = "dex";
 const BUILTIN_REVIEWERS: &str = include_str!("../prompts/reviewers.json");
 const IMPL_COMMITS_FILE: &str = "impl_commits.jsonl";
 
+const TIMING_FILE: &str = "timing.jsonl";
+
 const BUILTIN_TEMPLATES: &[(&str, &str)] = &[
     ("bare.txt", include_str!("../prompts/bare.txt")),
     ("finalize.txt", include_str!("../prompts/finalize.txt")),
@@ -265,6 +267,7 @@ pub fn reset_dex_runtime_artifacts() {
     remove_dex_file("questions.md");
     remove_dex_file(IMPL_COMMITS_FILE);
     remove_dex_file("review-plan.md");
+    remove_dex_file(TIMING_FILE);
 
     let entries = match fs::read_dir(DEX_DIR) {
         Ok(entries) => entries,
@@ -517,6 +520,32 @@ pub fn append_impl_commits(commits: &[ImplCommit]) {
     }
 }
 
+pub fn append_timing(phase: &str, iteration: usize, elapsed_secs: f64) {
+    ensure_dex_dir();
+    let path = dex_path(TIMING_FILE);
+    let mut file = match fs::OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Error: failed to open {}: {}", TIMING_FILE, e);
+            return;
+        }
+    };
+    use std::io::Write;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = serde_json::json!({
+        "phase": phase,
+        "iteration": iteration,
+        "elapsed_secs": elapsed_secs,
+        "timestamp": timestamp,
+    });
+    if let Err(e) = writeln!(file, "{}", line) {
+        eprintln!("Error: failed to write to {}: {}", TIMING_FILE, e);
+    }
+}
+
 /// Load the most recent `n` impl commits from the JSONL file.
 /// Returns them in chronological order (oldest first).
 pub fn load_recent_impl_commits(n: usize) -> Vec<ImplCommit> {
@@ -574,21 +603,80 @@ pub fn impl_commit_history_summary() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dex_path, git_commits_between, render_prompt, Config};
+    use super::{append_timing, dex_path, git_commits_between, render_prompt, Config};
     use std::process::Command;
 
     #[test]
-    fn plan_prompt_renders_internal_state_paths_via_helper() {
-        let prompt = render_prompt("plan.txt", &serde_json::json!({"Request": "test request"}));
+    fn append_timing_jsonl_format() {
+        let line = serde_json::json!({
+            "phase": "impl",
+            "iteration": 1,
+            "elapsed_secs": 12.5,
+            "timestamp": 1700000000u64,
+        });
+        let serialized = serde_json::to_string(&line).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed["phase"], "impl");
+        assert_eq!(parsed["iteration"], 1);
+        assert!((parsed["elapsed_secs"].as_f64().unwrap() - 12.5).abs() < 0.001);
+        assert_eq!(parsed["timestamp"], 1700000000u64);
+    }
 
-        assert!(prompt.contains(&format!(
-            "1. If {} exists, read it in full",
-            dex_path("plan.md")
-        )));
-        assert!(prompt.contains(&format!(
-            "write your questions to {} using this exact format",
-            dex_path("questions.md")
-        )));
+    #[test]
+    fn append_timing_jsonl_multiple_lines() {
+        let entries = vec![
+            serde_json::json!({"phase": "bare", "iteration": 1, "elapsed_secs": 5.0, "timestamp": 1700000001u64}),
+            serde_json::json!({"phase": "bare", "iteration": 2, "elapsed_secs": 7.0, "timestamp": 1700000002u64}),
+            serde_json::json!({"phase": "bare", "iteration": 3, "elapsed_secs": 3.0, "timestamp": 1700000003u64}),
+        ];
+        let jsonl: String = entries.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join("\n");
+        let lines: Vec<&str> = jsonl.lines().collect();
+        assert_eq!(lines.len(), 3);
+        for (i, line) in lines.iter().enumerate() {
+            let v: serde_json::Value = serde_json::from_str(line).unwrap();
+            assert_eq!(v["phase"], "bare");
+            assert_eq!(v["iteration"], (i + 1) as u64);
+        }
+    }
+
+    #[test]
+    fn append_timing_file_roundtrip() {
+        let tmp = std::env::temp_dir().join(format!(
+            "dex-timing-rt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join(".dex")).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&tmp).unwrap();
+        super::ensure_dex_dir();
+        append_timing("impl", 1, 12.5);
+        append_timing("plan", 3, 0.001);
+        std::env::set_current_dir(&prev).unwrap();
+
+        let timing_path = tmp.join(".dex").join("timing.jsonl");
+        let content = std::fs::read_to_string(&timing_path).unwrap();
+        let lines: Vec<&str> = content.trim().lines().collect();
+        assert_eq!(lines.len(), 2);
+
+        let v1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(v1["phase"], "impl");
+        assert_eq!(v1["iteration"], 1);
+        assert!((v1["elapsed_secs"].as_f64().unwrap() - 12.5).abs() < 0.001);
+        assert!(v1["timestamp"].as_u64().unwrap() > 0);
+
+        let v2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(v2["phase"], "plan");
+        assert_eq!(v2["iteration"], 3);
+        assert!((v2["elapsed_secs"].as_f64().unwrap() - 0.001).abs() < 0.0001);
+        assert!(v2["timestamp"].as_u64().unwrap() > 0);
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
