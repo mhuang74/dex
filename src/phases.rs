@@ -496,11 +496,14 @@ pub fn review_phase(
             }
         }
 
+        info(&format!("Generating review-plan.md (base_ref={})...", base_ref));
         let plan_content = generate_review_plan(base_ref, &reviewers);
         ensure_dex_dir();
         fs::write(&review_plan_path, &plan_content)
             .map_err(|e| format!("write review-plan.md: {}", e))?;
+        info(&format!("Wrote review-plan.md to {}", review_plan_path));
     } else {
+        info("review-plan.md already exists, resuming from plan");
         let existing_plan = read_dex_file("review-plan.md").unwrap_or_default();
         let expected = generate_review_plan(
             read_review_plan_base_ref().as_deref().unwrap_or(base_ref),
