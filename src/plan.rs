@@ -80,6 +80,22 @@ pub fn next_open_task(path: &str) -> Result<Option<TaskGroup>, String> {
     Ok(groups.into_iter().find(|g| g.open > 0))
 }
 
+pub fn first_open_checkbox(path: &str) -> Result<Option<(TaskGroup, String)>, String> {
+    let groups = parse_plan(path)?;
+    let checkbox_re = Regex::new(r"^-\s+\[\s\]\s+(.+)$").unwrap();
+    for group in &groups {
+        if group.open == 0 {
+            continue;
+        }
+        for line in &group.lines {
+            if let Some(caps) = checkbox_re.captures(line) {
+                return Ok(Some((group.clone(), caps[1].trim().to_string())));
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub fn validate_candidate_plan(path: &str) -> Result<(), String> {
     match next_open_task(path)? {
         Some(_) => Ok(()),
@@ -210,5 +226,36 @@ mod tests {
                 path.to_str().unwrap()
             )
         );
+    }
+
+    #[test]
+    fn first_open_checkbox_returns_first_unchecked() {
+        let path = write_temp_plan("## Build\n- [x] done\n- [ ] first open\n- [ ] second open\n");
+        let result = first_open_checkbox(path.to_str().unwrap());
+        let _ = fs::remove_file(&path);
+
+        let (group, name) = result.unwrap().unwrap();
+        assert_eq!(group.header, "## Build");
+        assert_eq!(name, "first open");
+    }
+
+    #[test]
+    fn first_open_checkbox_skips_completed_groups() {
+        let path = write_temp_plan("## Done\n- [x] a\n\n## Build\n- [ ] first\n");
+        let result = first_open_checkbox(path.to_str().unwrap());
+        let _ = fs::remove_file(&path);
+
+        let (group, name) = result.unwrap().unwrap();
+        assert_eq!(group.header, "## Build");
+        assert_eq!(name, "first");
+    }
+
+    #[test]
+    fn first_open_checkbox_returns_none_when_all_done() {
+        let path = write_temp_plan("## Done\n- [x] a\n- [x] b\n");
+        let result = first_open_checkbox(path.to_str().unwrap());
+        let _ = fs::remove_file(&path);
+
+        assert!(result.unwrap().is_none());
     }
 }

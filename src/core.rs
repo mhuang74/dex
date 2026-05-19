@@ -8,8 +8,8 @@ use std::process::Command;
 
 use crate::ui::err_msg;
 
-const DEX_DIR: &str = ".dex";
-const DEX_PROMPTS_DIR: &str = ".dex/prompts";
+pub const DEX_DIR: &str = ".dex";
+pub const DEX_PROMPTS_DIR: &str = ".dex/prompts";
 const DEX_CONFIG_DIR: &str = "dex";
 const BUILTIN_REVIEWERS: &str = include_str!("../prompts/reviewers.json");
 const IMPL_COMMITS_FILE: &str = "impl_commits.jsonl";
@@ -264,6 +264,7 @@ pub fn reset_dex_runtime_artifacts() {
     remove_dex_file("feedbacks.json");
     remove_dex_file("questions.md");
     remove_dex_file(IMPL_COMMITS_FILE);
+    remove_dex_file("review-plan.md");
 
     let entries = match fs::read_dir(DEX_DIR) {
         Ok(entries) => entries,
