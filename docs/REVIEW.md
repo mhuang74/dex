@@ -4,7 +4,7 @@
 
 `dex review` performs a multi-round code review of the current implementation. It runs specialized AI reviewers in parallel, collects findings, applies fixes via a fixer agent, and iterates through focused review rounds until the code is clean or a maximum number of rounds is reached.
 
-The design mirrors `dex apply`: a persistent checkbox-based plan file (`.dex/review-plan.md`) tracks progress. Re-running `dex review` resumes from the first incomplete step — no special `--resume` flag needed.
+The design mirrors `dex apply`: a persistent checkbox-based plan file (`.dex/plan-review.md`) tracks progress. Re-running `dex review` resumes from the first incomplete step — no special `--resume` flag needed.
 
 ## Overall Flow
 
@@ -15,10 +15,10 @@ dex review [--parallel N] [--from REF] [--force]
   1. Resolve base ref (impl_commits.jsonl or --from)
         |
         v
-  2. Load or generate review-plan.md
+  2. Load or generate plan-review.md
         |
         v
-  3. Loop: pick next open checkbox from review-plan.md
+  3. Loop: pick next open checkbox from plan-review.md
         |
         +-- Broad Review checkbox --> run broad reviewer, mark done
         |
@@ -58,7 +58,7 @@ Base ref resolution order:
 
 **Source**: `src/phases.rs:345-374` (`generate_review_plan`), `src/phases.rs:488-512`
 
-On first run (or `--force`), `review_phase` generates `.dex/review-plan.md` from the reviewer definitions. The plan uses the same heading + checkbox format as `plan.md`, so existing `plan.rs` parsing functions work without modification.
+On first run (or `--force`), `review_phase` generates `.dex/plan-review.md` from the reviewer definitions. The plan uses the same heading + checkbox format as `plan.md`, so existing `plan.rs` parsing functions work without modification.
 
 **Plan format**:
 
@@ -90,7 +90,7 @@ On first run (or `--force`), `review_phase` generates `.dex/review-plan.md` from
 
 Key behaviors:
 - The `<!-- base_ref: ... -->` HTML comment on line 1 stores the base ref used when the plan was generated, ensuring consistency across re-runs (`src/phases.rs:376-381`)
-- If `review-plan.md` already exists and `reviewers.json` has changed, a warning is printed but the plan is not regenerated — the user must use `--force` (`src/phases.rs:509-511`)
+- If `plan-review.md` already exists and `reviewers.json` has changed, a warning is printed but the plan is not regenerated — the user must use `--force` (`src/phases.rs:509-511`)
 - On `--force`, all `review-*.md` files in `.dex/` are deleted before regenerating the plan (`src/phases.rs:489-497`)
 
 ### 3. Broad Review
@@ -148,21 +148,21 @@ Same mechanism as the broad fixer, but scoped to focused reviewer findings. The 
 
 **Source**: `src/phases.rs:517-521`, `src/plan.rs:83-97` (`first_open_checkbox`)
 
-Progress is tracked entirely through the checkbox state in `review-plan.md`:
+Progress is tracked entirely through the checkbox state in `plan-review.md`:
 
 - `first_open_checkbox()` scans the plan file for the first `- [ ]` line and returns the associated heading and checkbox name
 - `mark_review_step_done()` checks a specific checkbox under a specific heading (heading-scoped to avoid cross-heading name collisions)
 - `mark_remaining_skipped()` bulk-checks all remaining open checkboxes with a skip note
 
-**Resume behavior**: Re-running `dex review` (without `--force`) reads the existing `review-plan.md` and continues from the first open checkbox. Completed reviewers are not re-invoked. This matches how `dex apply` works — no special `--resume` flag needed.
+**Resume behavior**: Re-running `dex review` (without `--force`) reads the existing `plan-review.md` and continues from the first open checkbox. Completed reviewers are not re-invoked. This matches how `dex apply` works — no special `--resume` flag needed.
 
-**Base ref consistency**: If `review-plan.md` exists, the stored `base_ref` (from the HTML comment) overrides the CLI-provided one, ensuring the diff doesn't change between invocations (`src/phases.rs:514-515`).
+**Base ref consistency**: If `plan-review.md` exists, the stored `base_ref` (from the HTML comment) overrides the CLI-provided one, ensuring the diff doesn't change between invocations (`src/phases.rs:514-515`).
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `.dex/review-plan.md` | Checkbox-based progress tracker (auto-generated) |
+| `.dex/plan-review.md` | Checkbox-based progress tracker (auto-generated) |
 | `.dex/review-<name>.md` | Individual reviewer output (one per reviewer) |
 | `.dex/reviewers.json` | Reviewer role definitions (seeded from built-in defaults) |
 | `prompts/review.txt` | Handlebars template for reviewer prompts |

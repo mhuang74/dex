@@ -392,14 +392,14 @@ fn generate_review_plan(base_ref: &str, reviewers: &Reviewers) -> String {
 }
 
 fn read_review_plan_base_ref() -> Option<String> {
-    let content = read_dex_file("review-plan.md")?;
+    let content = read_dex_file("plan-review.md")?;
     let first_line = content.lines().next()?;
     let re = regex::Regex::new(r"^<!-- base_ref: (.+?) -->$").unwrap();
     re.captures(first_line).map(|caps| caps[1].to_string())
 }
 
 fn mark_review_step_done(heading: &str, name: &str) {
-    let Some(content) = read_dex_file("review-plan.md") else {
+    let Some(content) = read_dex_file("plan-review.md") else {
         return;
     };
     let heading_re = regex::Regex::new(r"^#{1,6}\s+.*$").unwrap();
@@ -425,11 +425,11 @@ fn mark_review_step_done(heading: &str, name: &str) {
             line.to_string()
         })
         .collect();
-    let _ = fs::write(dex_path("review-plan.md"), updated.join("\n"));
+    let _ = fs::write(dex_path("plan-review.md"), updated.join("\n"));
 }
 
 fn mark_remaining_skipped(note: &str) {
-    let Some(content) = read_dex_file("review-plan.md") else {
+    let Some(content) = read_dex_file("plan-review.md") else {
         return;
     };
     let re = regex::Regex::new(r"^(- \[) \](\s+.+)$").unwrap();
@@ -443,7 +443,7 @@ fn mark_remaining_skipped(note: &str) {
             }
         })
         .collect();
-    let _ = fs::write(dex_path("review-plan.md"), updated.join("\n"));
+    let _ = fs::write(dex_path("plan-review.md"), updated.join("\n"));
 }
 
 fn plans_have_same_structure(a: &str, b: &str) -> bool {
@@ -501,7 +501,7 @@ pub fn review_phase(
         }
     };
 
-    let review_plan_path = dex_path("review-plan.md");
+    let review_plan_path = dex_path("plan-review.md");
 
     if force || !std::path::PathBuf::from(&review_plan_path).exists() {
         for entry in fs::read_dir(crate::core::DEX_DIR).unwrap_or_else(|_| {
@@ -514,21 +514,21 @@ pub fn review_phase(
             }
         }
 
-        info(&format!("Generating review-plan.md (base_ref={})...", base_ref));
+        info(&format!("Generating plan-review.md (base_ref={})...", base_ref));
         let plan_content = generate_review_plan(base_ref, &reviewers);
         ensure_dex_dir();
         fs::write(&review_plan_path, &plan_content)
-            .map_err(|e| format!("write review-plan.md: {}", e))?;
-        info(&format!("Wrote review-plan.md to {}", review_plan_path));
+            .map_err(|e| format!("write plan-review.md: {}", e))?;
+        info(&format!("Wrote plan-review.md to {}", review_plan_path));
     } else {
-        info("review-plan.md already exists, resuming from plan");
-        let existing_plan = read_dex_file("review-plan.md").unwrap_or_default();
+        info("plan-review.md already exists, resuming from plan");
+        let existing_plan = read_dex_file("plan-review.md").unwrap_or_default();
         let expected = generate_review_plan(
             read_review_plan_base_ref().as_deref().unwrap_or(base_ref),
             &reviewers,
         );
         if !plans_have_same_structure(&existing_plan, &expected) {
-            warn("reviewers.json changed since review-plan.md was generated. Use --force to regenerate.");
+            warn("reviewers.json changed since plan-review.md was generated. Use --force to regenerate.");
         }
     }
 
@@ -948,16 +948,16 @@ mod tests {
 
     fn setup_dex_dir() {
         ensure_dex_dir();
-        let _ = fs::remove_file(dex_path("review-plan.md"));
+        let _ = fs::remove_file(dex_path("plan-review.md"));
     }
 
     fn teardown_dex_dir() {
-        let _ = fs::remove_file(dex_path("review-plan.md"));
+        let _ = fs::remove_file(dex_path("plan-review.md"));
     }
 
     fn write_review_plan(content: &str) {
         setup_dex_dir();
-        fs::write(dex_path("review-plan.md"), content).unwrap();
+        fs::write(dex_path("plan-review.md"), content).unwrap();
     }
 
     #[test]
@@ -1090,7 +1090,7 @@ mod tests {
 
         mark_review_step_done("## Broad Review", "quality");
 
-        let updated = fs::read_to_string(dex_path("review-plan.md")).unwrap();
+        let updated = fs::read_to_string(dex_path("plan-review.md")).unwrap();
         assert!(updated.contains("- [x] quality"));
         assert!(updated.contains("- [ ] security"));
         assert!(updated.contains("- [ ] fix broad review findings"));
@@ -1103,7 +1103,7 @@ mod tests {
 
         mark_review_step_done("## Broad Review", "quality");
 
-        let updated = fs::read_to_string(dex_path("review-plan.md")).unwrap();
+        let updated = fs::read_to_string(dex_path("plan-review.md")).unwrap();
         let lines: Vec<&str> = updated.lines().collect();
         let broad_quality_checked = lines.iter().position(|l| *l == "- [x] quality");
         let focused_quality_unchecked = lines.iter().position(|l| *l == "- [ ] quality");
@@ -1119,7 +1119,7 @@ mod tests {
 
         mark_review_step_done("## Broad Review", "nonexistent");
 
-        let updated = fs::read_to_string(dex_path("review-plan.md")).unwrap();
+        let updated = fs::read_to_string(dex_path("plan-review.md")).unwrap();
         assert!(updated.contains("- [ ] quality"));
         assert!(!updated.contains("- [x]"));
         teardown_dex_dir();
@@ -1131,7 +1131,7 @@ mod tests {
 
         mark_remaining_skipped("skipped — prior round clean");
 
-        let updated = fs::read_to_string(dex_path("review-plan.md")).unwrap();
+        let updated = fs::read_to_string(dex_path("plan-review.md")).unwrap();
         assert!(updated.contains("- [x] quality"));
         assert!(updated.contains("- [x] security (skipped — prior round clean)"));
         assert!(updated.contains("- [x] critical-correctness (skipped — prior round clean)"));

@@ -266,7 +266,7 @@ pub fn reset_dex_runtime_artifacts() {
     remove_dex_file("feedbacks.json");
     remove_dex_file("questions.md");
     remove_dex_file(IMPL_COMMITS_FILE);
-    remove_dex_file("review-plan.md");
+    remove_dex_file("plan-review.md");
     remove_dex_file(TIMING_FILE);
 
     let entries = match fs::read_dir(DEX_DIR) {
