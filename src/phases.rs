@@ -391,6 +391,25 @@ fn generate_review_plan(base_ref: &str, reviewers: &Reviewers) -> String {
     lines.join("\n")
 }
 
+fn trace_plan_review_state(step: &str) {
+    let path = dex_path("plan-review.md");
+    let pb = std::path::PathBuf::from(&path);
+    if !pb.exists() {
+        warn(&format!("[TRACE plan-review.md] step={}: FILE MISSING at {}", step, path));
+        return;
+    }
+    let meta = fs::metadata(&path).ok();
+    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let content = fs::read_to_string(&path).unwrap_or_default();
+    let first_line = content.lines().next().unwrap_or("(empty)");
+    let checked = content.lines().filter(|l| l.trim().starts_with("- [x]")).count();
+    let unchecked = content.lines().filter(|l| l.trim().starts_with("- [ ]")).count();
+    info(&format!(
+        "[TRACE plan-review.md] step={}: exists size={} checked={} unchecked={} first_line={:?}",
+        step, size, checked, unchecked, first_line
+    ));
+}
+
 fn read_review_plan_base_ref() -> Option<String> {
     let content = read_dex_file("plan-review.md")?;
     let first_line = content.lines().next()?;
@@ -400,6 +419,7 @@ fn read_review_plan_base_ref() -> Option<String> {
 
 fn mark_review_step_done(heading: &str, name: &str) {
     let Some(content) = read_dex_file("plan-review.md") else {
+        warn(&format!("[TRACE mark_review_step_done] plan-review.md MISSING on read heading={} name={}", heading, name));
         return;
     };
     let heading_re = regex::Regex::new(r"^#{1,6}\s+.*$").unwrap();
@@ -409,6 +429,7 @@ fn mark_review_step_done(heading: &str, name: &str) {
     )).unwrap();
 
     let mut in_target_heading = false;
+    let mut matched = false;
     let updated: Vec<String> = content
         .lines()
         .map(|line| {
@@ -419,31 +440,45 @@ fn mark_review_step_done(heading: &str, name: &str) {
             }
             if in_target_heading {
                 if let Some(caps) = checkbox_re.captures(line) {
+                    matched = true;
                     return format!("- [x]{}", &caps[2]);
                 }
             }
             line.to_string()
         })
         .collect();
-    let _ = fs::write(dex_path("plan-review.md"), updated.join("\n"));
+    if !matched {
+        warn(&format!("[TRACE mark_review_step_done] checkbox NOT FOUND heading={} name={}", heading, name));
+    }
+    let write_path = dex_path("plan-review.md");
+    if let Err(e) = fs::write(&write_path, updated.join("\n")) {
+        warn(&format!("[TRACE mark_review_step_done] write FAILED path={} err={}", write_path, e));
+    }
 }
 
 fn mark_remaining_skipped(note: &str) {
     let Some(content) = read_dex_file("plan-review.md") else {
+        warn(&format!("[TRACE mark_remaining_skipped] plan-review.md MISSING on read note={}", note));
         return;
     };
     let re = regex::Regex::new(r"^(- \[) \](\s+.+)$").unwrap();
+    let mut skip_count = 0;
     let updated: Vec<String> = content
         .lines()
         .map(|line| {
             if let Some(caps) = re.captures(line) {
+                skip_count += 1;
                 format!("- [x]{} ({})", &caps[2], note)
             } else {
                 line.to_string()
             }
         })
         .collect();
-    let _ = fs::write(dex_path("plan-review.md"), updated.join("\n"));
+    info(&format!("[TRACE mark_remaining_skipped] skipped {} checkboxes note={}", skip_count, note));
+    let write_path = dex_path("plan-review.md");
+    if let Err(e) = fs::write(&write_path, updated.join("\n")) {
+        warn(&format!("[TRACE mark_remaining_skipped] write FAILED path={} err={}", write_path, e));
+    }
 }
 
 fn plans_have_same_structure(a: &str, b: &str) -> bool {
@@ -537,6 +572,7 @@ pub fn review_phase(
 
     let mut review_step = 0;
     loop {
+        trace_plan_review_state(&format!("loop-start step={}", review_step + 1));
         let Some((task, checkbox_name)) = first_open_checkbox(&review_plan_path)? else {
             info("All review steps complete!");
             return Ok(());
@@ -550,9 +586,12 @@ pub fn review_phase(
         if header.starts_with("Broad Review") {
             let rv = reviewers.broad.iter().find(|rv| rv.name == checkbox_name);
             if let Some(rv) = rv {
+                trace_plan_review_state(&format!("broad-review BEFORE fanout name={}", rv.name));
                 run_review_fanout(r, plan_path, &effective_base_ref, std::slice::from_ref(rv), "broad", 1, 1, parallel);
+                trace_plan_review_state(&format!("broad-review AFTER fanout name={}", rv.name));
             }
             mark_review_step_done("## Broad Review", &checkbox_name);
+            trace_plan_review_state(&format!("broad-review AFTER mark_done name={}", checkbox_name));
             let elapsed = step_start.elapsed();
             phase_detail("elapsed", &format_duration(elapsed));
             append_timing("review-broad", review_step, elapsed.as_secs_f64());
@@ -563,8 +602,11 @@ pub fn review_phase(
                     mark_review_step_done("## Broad Fixer", "fix broad review findings");
                 }
                 Some(ref issues) => {
+                    trace_plan_review_state("broad-fixer BEFORE run_fixer");
                     run_fixer(r, plan_path, &effective_base_ref, issues)?;
+                    trace_plan_review_state("broad-fixer AFTER run_fixer");
                     mark_review_step_done("## Broad Fixer", "fix broad review findings");
+                    trace_plan_review_state("broad-fixer AFTER mark_done");
                 }
             }
             let elapsed = step_start.elapsed();
@@ -574,6 +616,7 @@ pub fn review_phase(
             let rv = reviewers.focused.iter().find(|rv| rv.name == checkbox_name);
             let round = extract_round_from_heading(header);
             if let Some(rv) = rv {
+                trace_plan_review_state(&format!("focused-review BEFORE fanout name={}", rv.name));
                 let issues = run_review_fanout(
                     r,
                     plan_path,
@@ -584,7 +627,9 @@ pub fn review_phase(
                     MAX_FOCUSED_ROUNDS,
                     parallel,
                 );
+                trace_plan_review_state(&format!("focused-review AFTER fanout name={}", rv.name));
                 mark_review_step_done(&task.header, &checkbox_name);
+                trace_plan_review_state(&format!("focused-review AFTER mark_done name={}", checkbox_name));
                 let elapsed = step_start.elapsed();
                 phase_detail("elapsed", &format_duration(elapsed));
                 append_timing("review-focused", review_step, elapsed.as_secs_f64());
@@ -598,6 +643,7 @@ pub fn review_phase(
                     };
                     if all_in_round_done {
                         mark_remaining_skipped("skipped — prior round clean");
+                        trace_plan_review_state("focused-review AFTER mark_remaining_skipped");
                         info("All focused reviewers report ZERO ISSUES. Review phase complete!");
                         return Ok(());
                     }
@@ -611,8 +657,11 @@ pub fn review_phase(
                     mark_review_step_done(&task.header, &format!("fix focused round {} findings", round));
                 }
                 Some(ref issues) => {
+                    trace_plan_review_state(&format!("focused-fixer BEFORE run_fixer round={}", round));
                     run_fixer(r, plan_path, &effective_base_ref, issues)?;
+                    trace_plan_review_state(&format!("focused-fixer AFTER run_fixer round={}", round));
                     mark_review_step_done(&task.header, &format!("fix focused round {} findings", round));
+                    trace_plan_review_state(&format!("focused-fixer AFTER mark_done round={}", round));
                 }
             }
             let elapsed = step_start.elapsed();
