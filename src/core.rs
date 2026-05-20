@@ -232,6 +232,22 @@ pub fn remove_dex_file(name: &str) {
     fs::remove_file(dex_path(name)).ok();
 }
 
+pub fn remove_review_artifacts() {
+    let entries = match fs::read_dir(DEX_DIR) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if path.is_file() && name.starts_with("review-") && name.ends_with(".md") {
+            fs::remove_file(path).ok();
+        }
+    }
+}
+
 pub fn save_plan_request(request: &str) {
     ensure_dex_dir();
     if let Err(e) = fs::write(dex_path("request.txt"), request) {
@@ -264,21 +280,7 @@ pub fn reset_dex_runtime_artifacts() {
     remove_dex_file("feedbacks.json");
     remove_dex_file("questions.md");
     remove_dex_file(IMPL_COMMITS_FILE);
-
-    let entries = match fs::read_dir(DEX_DIR) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-            continue;
-        };
-        if path.is_file() && name.starts_with("review-") && name.ends_with(".md") {
-            fs::remove_file(path).ok();
-        }
-    }
+    remove_review_artifacts();
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

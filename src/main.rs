@@ -131,7 +131,8 @@ struct ApplyCmd {}
     subcommand,
     name = "review",
     example = "Review the current implementation:\n  {command_name} --parallel 2",
-    example = "Review against a specific base:\n  {command_name} --from main"
+    example = "Review against a specific base:\n  {command_name} --from main",
+    example = "Force a fresh review from scratch:\n  {command_name} --force"
 )]
 struct ReviewCmd {
     /// max reviewers to run in parallel (default: all)
@@ -141,6 +142,10 @@ struct ReviewCmd {
     /// base ref for the review diff (used when no impl_commits.jsonl exists)
     #[argh(option)]
     from: Option<String>,
+
+    /// remove existing review artifacts and start from scratch
+    #[argh(switch)]
+    force: bool,
 }
 
 /// send a request straight to the agent for N iterations
@@ -538,7 +543,7 @@ fn run_app() -> CmdResult {
                 },
             };
 
-            review_phase(&runner, &plan_path, &base_ref, cmd.parallel)?;
+            review_phase(&runner, &plan_path, &base_ref, cmd.parallel, cmd.force)?;
             finish("Review complete.");
             Ok(())
         }
