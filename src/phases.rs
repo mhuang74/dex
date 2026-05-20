@@ -5,8 +5,8 @@ use std::process::Command;
 
 use crate::core::{
     append_impl_commits, dex_path, ensure_dex_dir, git_commits_between, git_head,
-    git_trimmed_output, impl_commit_history_summary, read_dex_file, remove_dex_file, render_prompt,
-    save_feedbacks, save_plan_request,
+    git_trimmed_output, impl_commit_history_summary, read_dex_file, remove_dex_file,
+    remove_review_artifacts, render_prompt, save_feedbacks, save_plan_request,
 };
 use crate::plan::{next_open_task, plan_step_counts};
 use crate::runner::Runner;
@@ -348,11 +348,36 @@ struct PreparedReview {
     role_scope: String,
 }
 
+fn review_filename(name: &str, round: usize) -> String {
+    format!("review-{}-r{}.md", name, round)
+}
+
+fn legacy_review_filename(name: &str) -> String {
+    format!("review-{}.md", name)
+}
+
+fn read_review_file(name: &str, round: usize) -> Option<String> {
+    let filename = review_filename(name, round);
+    if let Some(content) = read_dex_file(&filename) {
+        return Some(content);
+    }
+    if round == 1 {
+        read_dex_file(&legacy_review_filename(name))
+    } else {
+        None
+    }
+}
+
+fn review_already_completed(name: &str, round: usize) -> bool {
+    read_review_file(name, round).is_some()
+}
+
 pub fn review_phase(
     r: &Runner,
     plan_path: &str,
     base_ref: &str,
     parallel: Option<usize>,
+    force: bool,
 ) -> Result<(), String> {
     let reviewers = {
         let path = dex_path("reviewers.json");
@@ -364,6 +389,11 @@ pub fn review_phase(
             Err(_) => Reviewers::builtin(),
         }
     };
+
+    if force {
+        remove_review_artifacts();
+        info("Cleared existing review artifacts (--force).");
+    }
 
     let issues = run_review_fanout(
         r,
@@ -422,11 +452,24 @@ fn run_review_fanout(
         label, round, max_rounds
     ));
 
-    for rv in reviewers {
-        remove_dex_file(&format!("review-{}.md", rv.name));
+    let pending: Vec<&ReviewRole> = reviewers
+        .iter()
+        .filter(|rv| !review_already_completed(&rv.name, round))
+        .collect();
+
+    if pending.len() < reviewers.len() {
+        let skipped: Vec<&str> = reviewers
+            .iter()
+            .filter(|rv| !pending.iter().any(|p| p.name == rv.name))
+            .map(|rv| rv.name.as_str())
+            .collect();
+        info(&format!(
+            "Resuming — skipping already-completed review(s): {}",
+            skipped.join(", ")
+        ));
     }
 
-    let prepared: Vec<PreparedReview> = reviewers
+    let prepared: Vec<PreparedReview> = pending
         .iter()
         .map(|rv| PreparedReview {
             prompt: render_prompt(
@@ -437,7 +480,7 @@ fn run_review_fanout(
                     "RoleName": rv.name,
                     "RoleScope": rv.scope,
                     "RolePrompt": rv.prompt,
-                    "ReviewName": format!("review-{}.md", rv.name),
+                    "ReviewName": review_filename(&rv.name, round),
                 }),
             ),
             role_name: rv.name.clone(),
@@ -445,7 +488,7 @@ fn run_review_fanout(
         })
         .collect();
 
-    let max_concurrent = parallel.unwrap_or(reviewers.len()).max(1);
+    let max_concurrent = parallel.unwrap_or(pending.len()).max(1);
     for batch in prepared.chunks(max_concurrent) {
         let handles: Vec<_> = batch
             .iter()
@@ -491,7 +534,7 @@ fn run_review_fanout(
     let clean_review_re = regex::Regex::new(r"(?i)[-*]\s*(zero|no)\s+(findings|issues)").unwrap();
 
     for rv in reviewers {
-        let review = read_dex_file(&format!("review-{}.md", rv.name));
+        let review = read_review_file(&rv.name, round);
         match review {
             None => {
                 warn(&format!("Reviewer {:?} produced no output", rv.name));
