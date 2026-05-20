@@ -224,10 +224,21 @@ pub fn ensure_config() {
 
 pub fn read_dex_file(name: &str) -> Option<String> {
     let path = dex_path(name);
-    fs::read_to_string(&path).ok().and_then(|content| {
-        let trimmed = content.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_string())
-    })
+    match fs::read_to_string(&path) {
+        Ok(content) => {
+            let trimmed = content.trim();
+            if trimmed.is_empty() {
+                eprintln!("[TRACE read_dex_file] name={} path={} raw_len={} TRIMMED_EMPTY", name, path, content.len());
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Err(e) => {
+            eprintln!("[TRACE read_dex_file] name={} path={} READ_ERR={}", name, path, e);
+            None
+        }
+    }
 }
 
 pub fn remove_dex_file(name: &str) {
